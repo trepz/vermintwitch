@@ -1,3 +1,6 @@
+use std::rc::Rc;
+
+use slint::{Model, SharedString, VecModel};
 use winapi::um::winuser::GetKeyboardState;
 
 slint::include_modules!();
@@ -9,14 +12,35 @@ struct Key {
 
 pub fn run() {
     let window = MainWindow::new().unwrap();
-    window.on_reg(|_| {
-        // Don't care about the unicode slint gives us, query windows
+    let window_weak = window.as_weak();
+    window.on_reg(move |slot: i32| {
+        let window = window_weak.unwrap();
         match get_key_data() {
-            Some(key) => println!("{} {}", key.code, key.name),
-            None => println!("Unregister key")
+            Some(key) => {
+                let mut keys: Vec<SharedString> = window.get_keys().iter().collect();
+                let chopped = slot.to_le_bytes()[0];
+                let owned = key.name.to_owned();
+                if owned == "ESC" {
+                    unregister_hotkey(key.code);
+                } else {
+                    register_hotkey(key.code, chopped);
+                }
+                let usize_idx = usize::from(chopped);
+                keys[usize_idx] = SharedString::from(owned);
+                window.set_keys(Rc::new(VecModel::from(keys)).into());
+            }
+            None => ()
         }
     });
     window.run().unwrap()
+}
+
+fn register_hotkey(code: u16, slot: u8) {
+    println!("Registering: {} to {}", code, slot);
+}
+
+fn unregister_hotkey(code: u16) {
+    println!("Unregistering: {}", code);
 }
 
 
@@ -39,6 +63,7 @@ fn get_key_data() -> Option<Key> {
     };
 
     let name = win_key_lookup(code).unwrap_or("Misc".into());
+    if name == "ESC" { return None; } // Escape should cancel binding
 
     Some(Key { code, name })
 }

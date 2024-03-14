@@ -3,7 +3,7 @@ component HotkeySelect inherits Rectangle {
     property<bool> selecting: false;
     in property<string> binding;
     in property<string> key;
-    callback reg(string);
+    callback select();
     GridLayout {
         padding-left: 20px;
         padding-top: 10px;
@@ -12,11 +12,12 @@ component HotkeySelect inherits Rectangle {
             width: self.visible ? 250px : 0;
             vertical-alignment: center;
             font-size: 18px;
+            color: #BB86FC;
             text: "Press a key to select";
             fs := FocusScope {
-                key-pressed(event) => {
+                key-pressed() => {
                     selecting = false;
-                    reg(event.text);
+                    select();
                     reject
                 }
                 focus-changed-event => {
@@ -50,7 +51,7 @@ export component MainWindow inherits Window {
     height: 400px;
     in property <[string]> bindings: ["#A", "#B", "#C", "#D", "#E"];
     in property <[string]> keys: ["unbound", "unbound", "unbound", "unbound", "unbound"];
-    callback reg(string);
+    callback reg(int);
     VerticalLayout {
         padding-left: 10px;
         padding-right: 10px;
@@ -66,8 +67,8 @@ export component MainWindow inherits Window {
         for bind[i] in bindings: HotkeySelect {
             binding: bind;
             key: keys[i];
-            reg(str) => {
-                reg(str);
+            select() => {
+                reg(i);
             }
         }
     }
