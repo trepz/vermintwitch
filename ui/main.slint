@@ -15,9 +15,12 @@ component HotkeySelect inherits Rectangle {
             text: "Press a key to select";
             fs := FocusScope {
                 key-pressed(event) => {
-                    reg(event.text);
                     selecting = false;
-                    accept
+                    reg(event.text);
+                    reject
+                }
+                focus-changed-event => {
+                    selecting = fs.has-focus;
                 }
             }
         }
@@ -46,7 +49,7 @@ export component MainWindow inherits Window {
     width: 400px;
     height: 400px;
     in property <[string]> bindings: ["#A", "#B", "#C", "#D", "#E"];
-    in property <[string]> keys: ["F1", "F2", "F3", "F4", "F5"];
+    in property <[string]> keys: ["unbound", "unbound", "unbound", "unbound", "unbound"];
     callback reg(string);
     VerticalLayout {
         padding-left: 10px;

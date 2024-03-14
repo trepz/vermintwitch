@@ -11,7 +11,7 @@ use crossbeam_channel::unbounded;
 mod cert;
 mod tcp_server;
 mod irc_server;
-mod ui;
+mod app;
 
 fn main() {
     edit_hosts(true);
@@ -26,7 +26,7 @@ fn main() {
     };
     let (tx, rx) = unbounded();
     thread::spawn(|| irc_server::run_irc_server(rx));
-    ui::run_ui();
+    app::run();
     edit_hosts(false);
 }
 

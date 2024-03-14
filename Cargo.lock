@@ -4015,6 +4015,7 @@ dependencies = [
  "native-tls",
  "slint",
  "slint-build",
+ "winapi",
  "winres",
 ]
 
