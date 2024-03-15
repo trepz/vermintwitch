@@ -4,15 +4,15 @@ use std::thread;
 
 use crossbeam_channel::Receiver;
 
-pub async fn run_irc_server(receiver: Receiver<String>) {
+pub fn run_irc_server(receiver: Receiver<String>) {
     let listener = TcpListener::bind("127.0.0.1:6667").unwrap();
     while let Ok((stream, _)) = listener.accept() {
         let rx = receiver.clone();
-        thread::spawn(|| handle_client(stream, rx));
+        thread::spawn(move || handle_client(stream, rx));
     }
 }
 
-async fn handle_client(mut stream: TcpStream, chan: Receiver<String>) {
+fn handle_client(mut stream: TcpStream, chan: Receiver<String>) {
     let mut rat_num = 0;
     loop {
         let vote = match chan.recv() {
