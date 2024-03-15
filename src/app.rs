@@ -1,18 +1,26 @@
+use std::os::windows::ffi::OsStrExt;
+use std::ptr::null_mut;
 use std::rc::Rc;
+use std::thread;
 
 use slint::{Model, SharedString, VecModel};
-use winapi::um::winuser::GetKeyboardState;
+use winapi::ctypes::c_int;
+use winapi::shared::minwindef::DWORD;
+use winapi::um::processthreadsapi::GetCurrentThreadId;
+use winapi::um::winuser::{GetKeyboardState, GetMessageW, MSG, RegisterHotKey, UnregisterHotKey, WM_HOTKEY};
 
 slint::include_modules!();
 
 struct Key {
-    code: u16,
+    code: u32,
     name: String,
 }
 
 pub fn run() {
     let window = MainWindow::new().unwrap();
     let window_weak = window.as_weak();
+    thread::spawn(move || event_loop());
+
     window.on_reg(move |slot: i32| {
         let window = window_weak.unwrap();
         match get_key_data() {
@@ -20,8 +28,8 @@ pub fn run() {
                 let mut keys: Vec<SharedString> = window.get_keys().iter().collect();
                 let chopped = slot.to_le_bytes()[0];
                 let owned = key.name.to_owned();
-                if owned == "ESC" {
-                    unregister_hotkey(key.code);
+                if owned == "BACKSPACE" {
+                    unregister_hotkey(chopped);
                 } else {
                     register_hotkey(key.code, chopped);
                 }
@@ -35,12 +43,33 @@ pub fn run() {
     window.run().unwrap()
 }
 
-fn register_hotkey(code: u16, slot: u8) {
-    println!("Registering: {} to {}", code, slot);
+fn register_hotkey(code: u32, slot: u8) {
+    unsafe {
+        println!("Hotkey registered from: {}", win_current_thread());
+        RegisterHotKey(null_mut(), slot as c_int, 0, code);
+    }
 }
 
-fn unregister_hotkey(code: u16) {
-    println!("Unregistering: {}", code);
+fn unregister_hotkey(slot: u8) {
+    unsafe {
+        UnregisterHotKey(null_mut(), slot as c_int);
+    }
+}
+
+fn event_loop() {
+    loop {
+        unsafe {
+            println!("Thread listening");
+            let mut msg: MSG = std::mem::zeroed();
+            if GetMessageW(&mut msg, null_mut(), 0, 0) == 0 {
+                println!("thread quitting");
+                break;
+            }
+            if msg.message == WM_HOTKEY {
+                println!("Hotkey {} pressed!", msg.lParam);
+            }
+        }
+    }
 }
 
 
@@ -56,7 +85,7 @@ fn get_key_data() -> Option<Key> {
         .iter()
         .enumerate()
         .find(|(_, &value)| value >= 128)
-        .and_then(|(index, _)| u16::try_from(index).ok())
+        .and_then(|(index, _)| u32::try_from(index).ok())
     {
         Some(v) => v,
         None => return None
@@ -68,7 +97,13 @@ fn get_key_data() -> Option<Key> {
     Some(Key { code, name })
 }
 
-fn win_key_lookup(code: u16) -> Option<String> {
+fn win_current_thread() -> DWORD {
+    unsafe {
+        GetCurrentThreadId()
+    }
+}
+
+fn win_key_lookup(code: u32) -> Option<String> {
     let str = match code {
         0x01 => Some("Left mouse"),
         0x02 => Some("Right mouse"),
