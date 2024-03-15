@@ -14,7 +14,7 @@ pub fn run_tcp_server(key: Vec<u8>) -> Result<()> {
 
     while let Ok((stream, _)) = listener.accept() {
         let acc = acceptor.clone();
-        thread::spawn(|| handle_connection(stream, acc));
+        thread::spawn(move || handle_connection(stream, acc));
     };
 
     Ok(())
