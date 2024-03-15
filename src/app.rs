@@ -66,6 +66,7 @@ fn event_loop(thread_sender: Sender<DWORD>, irc_sender: crossbeam_channel::Sende
                     registrations[slot as usize] = 0;
                 } else {
                     RegisterHotKey(null_mut(), slot as c_int, 0, code);
+                    registrations[slot as usize] = code;
                 }
             }
             let mut msg: MSG = std::mem::zeroed();
