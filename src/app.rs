@@ -1,4 +1,3 @@
-use std::os::windows::ffi::OsStrExt;
 use std::ptr::null_mut;
 use std::rc::Rc;
 use std::sync::mpsc::{channel, Receiver, Sender};
@@ -61,10 +60,6 @@ fn event_loop(thread_sender: Sender<DWORD>, irc_sender: crossbeam_channel::Sende
                 // The slot for the binding exists, unbind it
                 if registrations[slot as usize] > 0 {
                     UnregisterHotKey(null_mut(), slot as c_int);
-                }
-                // The code exists in another slot, unbind it
-                if let Some(pos) = registrations.iter().position(|&x| x == code) {
-                    UnregisterHotKey(null_mut(), pos as c_int);
                 }
                 // Backspace key pressed - delete and don't rebind
                 if code == 0x08 {
