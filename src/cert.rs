@@ -1,10 +1,11 @@
-use std::env;
-use std::fs::{create_dir, File};
+use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::Result;
+
+use crate::get_appdata_dir;
 
 pub fn setup_cert() -> Result<Vec<u8>> {
     let cert_loc = get_appdata_dir().join("verm-cert.pfx");
@@ -48,11 +49,3 @@ Export-PfxCertificate -Cert $cert -Password $pwd -FilePath {}
 "#, path.to_str().unwrap())
 }
 
-fn get_appdata_dir() -> PathBuf {
-    let dir = env::var("APPDATA").expect("APPDATA environment variable not set.");
-    let path = PathBuf::from(dir).join("Vermintwitch");
-    if !Path::exists(&path) {
-        create_dir(&path).expect("Could not create vermintwitch data dir.");
-    }
-    path
-}

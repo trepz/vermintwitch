@@ -1,3 +1,5 @@
+use std::fs::File;
+use std::io::{BufWriter, Write};
 use std::ptr::null_mut;
 use std::rc::Rc;
 use std::sync::mpsc::{channel, Receiver, Sender};
@@ -8,6 +10,8 @@ use winapi::ctypes::c_int;
 use winapi::shared::minwindef::DWORD;
 use winapi::um::processthreadsapi::GetCurrentThreadId;
 use winapi::um::winuser::{GetKeyboardState, GetMessageW, MSG, PostThreadMessageW, RegisterHotKey, UnregisterHotKey, WM_HOTKEY, WM_QUIT};
+
+use crate::get_appdata_dir;
 
 slint::include_modules!();
 
@@ -67,6 +71,10 @@ fn event_loop(thread_sender: Sender<DWORD>, irc_sender: crossbeam_channel::Sende
                 } else {
                     RegisterHotKey(null_mut(), slot as c_int, 0, code);
                     registrations[slot as usize] = code;
+                    match save_registrations(&registrations) {
+                        Ok(()) => println!("saved"),
+                        Err(_) => println!("write failed")
+                    };
                 }
             }
             let mut msg: MSG = std::mem::zeroed();
@@ -114,6 +122,17 @@ fn get_key_data() -> Option<Key> {
     if name == "ESC" { return None; } // Escape should cancel binding
 
     Some(Key { code, name })
+}
+
+fn save_registrations(reg: &Vec<u32>) -> std::io::Result<()> {
+    let config = get_appdata_dir().join("binds.cfg");
+    let file = File::create(config)?;
+    let mut writer = BufWriter::new(file);
+    for num in reg {
+        write!(writer, "{}\n", num)?;
+    }
+    writer.flush()?;
+    Ok(())
 }
 
 fn win_current_thread() -> DWORD {

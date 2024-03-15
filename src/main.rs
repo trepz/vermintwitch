@@ -2,7 +2,8 @@
 
 use std::env;
 use std::fs;
-use std::path::PathBuf;
+use std::fs::create_dir;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::thread;
 
@@ -47,4 +48,13 @@ fn edit_hosts(add: bool) {
     if let Err(_) = Command::new("ipconfig").arg("/flushdns").output() {
         eprintln!("DNS flush failed.");
     }
+}
+
+fn get_appdata_dir() -> PathBuf {
+    let dir = env::var("APPDATA").expect("APPDATA environment variable not set.");
+    let path = PathBuf::from(dir).join("Vermintwitch");
+    if !Path::exists(&path) {
+        create_dir(&path).expect("Could not create vermintwitch data dir.");
+    }
+    path
 }
