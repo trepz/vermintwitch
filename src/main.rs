@@ -15,18 +15,15 @@ mod app;
 
 fn main() {
     edit_hosts(true);
-    let api_server_running = match cert::setup_cert() {
-        Ok(cert_str) => {
-            thread::spawn(|| {
-                tcp_server::run_tcp_server(cert_str).expect("Failed to start TCP server.")
-            });
-            true
-        }
-        Err(_) => false
+    if let Ok(cert_str) = cert::setup_cert() {
+        thread::spawn(|| {
+            tcp_server::run_tcp_server(cert_str).expect("Failed to start TCP server.")
+        });
     };
-    let (tx, rx) = unbounded();
+
+    let (tx, rx) = unbounded::<String>();
     thread::spawn(|| irc_server::run_irc_server(rx));
-    app::run();
+    app::run(tx);
     edit_hosts(false);
 }
 

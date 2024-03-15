@@ -8,7 +8,7 @@ use slint::{Model, SharedString, VecModel};
 use winapi::ctypes::c_int;
 use winapi::shared::minwindef::DWORD;
 use winapi::um::processthreadsapi::GetCurrentThreadId;
-use winapi::um::winuser::{GetKeyboardState, GetMessageW, MSG, PostThreadMessageW, RegisterHotKey, WM_HOTKEY};
+use winapi::um::winuser::{GetKeyboardState, GetMessageW, MSG, PostThreadMessageW, RegisterHotKey, WM_HOTKEY, WM_QUIT};
 
 slint::include_modules!();
 
@@ -17,13 +17,13 @@ struct Key {
     name: String,
 }
 
-pub fn run() {
+pub fn run(irc_sender: crossbeam_channel::Sender<String>) {
     let window = MainWindow::new().unwrap();
     let window_weak = window.as_weak();
 
     let (ts, tr) = channel::<DWORD>();
     let (snd, rcv) = channel::<(u32, u8)>();
-    thread::spawn(move || event_loop(ts, rcv));
+    thread::spawn(move || event_loop(ts, irc_sender, rcv));
     let thread_id = tr.recv().expect("Failed to receive thread id from evt loop.");
 
     window.on_reg(move |slot: i32| {
@@ -45,10 +45,13 @@ pub fn run() {
             None => ()
         }
     });
-    window.run().unwrap()
+    window.run().unwrap();
+
+    // Shut down evt loop
+    unsafe { PostThreadMessageW(thread_id, WM_QUIT, 0, 0); }
 }
 
-fn event_loop(thread_sender: Sender<DWORD>, bind_receiver: Receiver<(u32, u8)>) {
+fn event_loop(thread_sender: Sender<DWORD>, irc_sender: crossbeam_channel::Sender<String>, bind_receiver: Receiver<(u32, u8)>) {
     thread_sender.send(win_current_thread()).expect("Failed to identify current thread.");
     loop {
         unsafe {
@@ -56,14 +59,23 @@ fn event_loop(thread_sender: Sender<DWORD>, bind_receiver: Receiver<(u32, u8)>) 
             if let Ok((code, slot)) = bind {
                 RegisterHotKey(null_mut(), slot as c_int, 0, code);
             }
-            println!("Thread listening");
             let mut msg: MSG = std::mem::zeroed();
             if GetMessageW(&mut msg, null_mut(), 0, 0) == 0 {
-                println!("thread quitting");
+                println!("Shutting down event loop.");
                 break;
             }
             if msg.message == WM_HOTKEY {
-                println!("Hotkey {} pressed!", msg.wParam);
+                let txt = match msg.wParam {
+                    0 => "#A",
+                    1 => "#B",
+                    2 => "#C",
+                    3 => "#D",
+                    4 => "#E",
+                    _ => "???"
+                };
+                if let Err(_) = irc_sender.send(txt.to_string()) {
+                    println!("Nobody is listening.");
+                }
             }
         }
     }
