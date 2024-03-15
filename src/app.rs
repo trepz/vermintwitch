@@ -1,13 +1,14 @@
 use std::os::windows::ffi::OsStrExt;
 use std::ptr::null_mut;
 use std::rc::Rc;
+use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread;
 
 use slint::{Model, SharedString, VecModel};
 use winapi::ctypes::c_int;
 use winapi::shared::minwindef::DWORD;
 use winapi::um::processthreadsapi::GetCurrentThreadId;
-use winapi::um::winuser::{GetKeyboardState, GetMessageW, MSG, RegisterHotKey, UnregisterHotKey, WM_HOTKEY};
+use winapi::um::winuser::{GetKeyboardState, GetMessageW, MSG, PostThreadMessageW, RegisterHotKey, WM_HOTKEY};
 
 slint::include_modules!();
 
@@ -19,23 +20,27 @@ struct Key {
 pub fn run() {
     let window = MainWindow::new().unwrap();
     let window_weak = window.as_weak();
-    thread::spawn(move || event_loop());
+
+    let (ts, tr) = channel::<DWORD>();
+    let (snd, rcv) = channel::<(u32, u8)>();
+    thread::spawn(move || event_loop(ts, rcv));
+    let thread_id = tr.recv().expect("Failed to receive thread id from evt loop.");
 
     window.on_reg(move |slot: i32| {
         let window = window_weak.unwrap();
         match get_key_data() {
             Some(key) => {
+                let snd = snd.clone();
                 let mut keys: Vec<SharedString> = window.get_keys().iter().collect();
                 let chopped = slot.to_le_bytes()[0];
                 let owned = key.name.to_owned();
-                if owned == "BACKSPACE" {
-                    unregister_hotkey(chopped);
-                } else {
-                    register_hotkey(key.code, chopped);
-                }
+                snd.send((key.code, chopped)).expect("Channel send failed.");
                 let usize_idx = usize::from(chopped);
                 keys[usize_idx] = SharedString::from(owned);
                 window.set_keys(Rc::new(VecModel::from(keys)).into());
+
+                // Force event loop to handle an event to make it check queue for new binds
+                unsafe { PostThreadMessageW(thread_id, 6, 0, 0); }
             }
             None => ()
         }
@@ -43,22 +48,14 @@ pub fn run() {
     window.run().unwrap()
 }
 
-fn register_hotkey(code: u32, slot: u8) {
-    unsafe {
-        println!("Hotkey registered from: {}", win_current_thread());
-        RegisterHotKey(null_mut(), slot as c_int, 0, code);
-    }
-}
-
-fn unregister_hotkey(slot: u8) {
-    unsafe {
-        UnregisterHotKey(null_mut(), slot as c_int);
-    }
-}
-
-fn event_loop() {
+fn event_loop(thread_sender: Sender<DWORD>, bind_receiver: Receiver<(u32, u8)>) {
+    thread_sender.send(win_current_thread()).expect("Failed to identify current thread.");
     loop {
         unsafe {
+            let bind = bind_receiver.try_recv();
+            if let Ok((code, slot)) = bind {
+                RegisterHotKey(null_mut(), slot as c_int, 0, code);
+            }
             println!("Thread listening");
             let mut msg: MSG = std::mem::zeroed();
             if GetMessageW(&mut msg, null_mut(), 0, 0) == 0 {
@@ -66,7 +63,7 @@ fn event_loop() {
                 break;
             }
             if msg.message == WM_HOTKEY {
-                println!("Hotkey {} pressed!", msg.lParam);
+                println!("Hotkey {} pressed!", msg.wParam);
             }
         }
     }
