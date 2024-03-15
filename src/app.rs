@@ -8,7 +8,7 @@ use slint::{Model, SharedString, VecModel};
 use winapi::ctypes::c_int;
 use winapi::shared::minwindef::DWORD;
 use winapi::um::processthreadsapi::GetCurrentThreadId;
-use winapi::um::winuser::{GetKeyboardState, GetMessageW, MSG, PostThreadMessageW, RegisterHotKey, WM_HOTKEY, WM_QUIT};
+use winapi::um::winuser::{GetKeyboardState, GetMessageW, MSG, PostThreadMessageW, RegisterHotKey, UnregisterHotKey, WM_HOTKEY, WM_QUIT};
 
 slint::include_modules!();
 
@@ -53,11 +53,25 @@ pub fn run(irc_sender: crossbeam_channel::Sender<String>) {
 
 fn event_loop(thread_sender: Sender<DWORD>, irc_sender: crossbeam_channel::Sender<String>, bind_receiver: Receiver<(u32, u8)>) {
     thread_sender.send(win_current_thread()).expect("Failed to identify current thread.");
+    let mut registrations: Vec<u32> = vec![0; 5];
     loop {
         unsafe {
             let bind = bind_receiver.try_recv();
             if let Ok((code, slot)) = bind {
-                RegisterHotKey(null_mut(), slot as c_int, 0, code);
+                // The slot for the binding exists, unbind it
+                if registrations[slot as usize] > 0 {
+                    UnregisterHotKey(null_mut(), slot as c_int);
+                }
+                // The code exists in another slot, unbind it
+                if let Some(pos) = registrations.iter().position(|&x| x == code) {
+                    UnregisterHotKey(null_mut(), pos as c_int);
+                }
+                // Backspace key pressed - delete and don't rebind
+                if code == 0x08 {
+                    registrations[slot as usize] = 0;
+                } else {
+                    RegisterHotKey(null_mut(), slot as c_int, 0, code);
+                }
             }
             let mut msg: MSG = std::mem::zeroed();
             if GetMessageW(&mut msg, null_mut(), 0, 0) == 0 {
@@ -121,7 +135,7 @@ fn win_key_lookup(code: u32) -> Option<String> {
         0x05 => Some("X1 mouse"),
         0x06 => Some("X2 mouse"),
         0x07 => Some("Reserved"),
-        0x08 => Some("BACKSPACE"),
+        0x08 => Some("unbound"), // backspace key unbinds selection
         0x09 => Some("TAB"),
         0x0C => Some("CLEAR"),
         0x0D => Some("ENTER"),
