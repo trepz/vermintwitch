@@ -1,10 +1,11 @@
 use std::fs::File;
-use std::io::{BufWriter, Write};
+use std::io::{BufRead, BufReader, BufWriter, Read, Write};
 use std::ptr::null_mut;
 use std::rc::Rc;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread;
 
+use anyhow::Result;
 use slint::{Model, SharedString, VecModel};
 use winapi::ctypes::c_int;
 use winapi::shared::minwindef::DWORD;
@@ -23,6 +24,13 @@ struct Key {
 pub fn run(irc_sender: crossbeam_channel::Sender<String>) {
     let window = MainWindow::new().unwrap();
     let window_weak = window.as_weak();
+
+    let registrations: Vec<SharedString> = load_registrations()
+        .unwrap()
+        .iter()
+        .map(|&x| SharedString::from(win_key_lookup(x).unwrap_or("unbound".into())))
+        .collect();
+    window.set_keys(Rc::new(VecModel::from(registrations)).into());
 
     let (ts, tr) = channel::<DWORD>();
     let (snd, rcv) = channel::<(u32, u8)>();
@@ -124,7 +132,7 @@ fn get_key_data() -> Option<Key> {
     Some(Key { code, name })
 }
 
-fn save_registrations(reg: &Vec<u32>) -> std::io::Result<()> {
+fn save_registrations(reg: &Vec<u32>) -> Result<()> {
     let config = get_appdata_dir().join("binds.cfg");
     let file = File::create(config)?;
     let mut writer = BufWriter::new(file);
@@ -133,6 +141,19 @@ fn save_registrations(reg: &Vec<u32>) -> std::io::Result<()> {
     }
     writer.flush()?;
     Ok(())
+}
+
+fn load_registrations() -> Result<Vec<u32>> {
+    let config = get_appdata_dir().join("binds.cfg");
+    let file = File::open(config)?;
+    let reader = BufReader::new(file);
+    let reg: Vec<u32> = reader
+        .lines()
+        .take(5)
+        .map(|line| line.unwrap_or_default().parse().unwrap_or_default())
+        .collect();
+
+    Ok(reg)
 }
 
 fn win_current_thread() -> DWORD {
