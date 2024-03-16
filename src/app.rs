@@ -25,17 +25,23 @@ pub fn run(irc_sender: crossbeam_channel::Sender<String>) {
     let window = MainWindow::new().unwrap();
     let window_weak = window.as_weak();
 
-    let registrations: Vec<SharedString> = load_registrations()
-        .unwrap()
-        .iter()
-        .map(|&x| SharedString::from(win_key_lookup(x).unwrap_or("unbound".into())))
-        .collect();
-    window.set_keys(Rc::new(VecModel::from(registrations)).into());
-
     let (ts, tr) = channel::<DWORD>();
     let (snd, rcv) = channel::<(u32, u8)>();
     thread::spawn(move || event_loop(ts, irc_sender, rcv));
     let thread_id = tr.recv().expect("Failed to receive thread id from evt loop.");
+
+    if let Ok(registrations) = load_registrations() {
+        let strings: Vec<SharedString> = registrations.iter()
+            .map(|&x| SharedString::from(win_key_lookup(x).unwrap_or("unbound".into())))
+            .collect();
+        registrations.iter()
+            .enumerate()
+            .for_each(|(i, x)| {
+                snd.send((x.clone(), i as u8)).expect("Failed to fill registration channel");
+            });
+        window.set_keys(Rc::new(VecModel::from(strings)).into());
+        unblock_event_loop(thread_id);
+    }
 
     window.on_reg(move |slot: i32| {
         let window = window_weak.unwrap();
@@ -49,9 +55,7 @@ pub fn run(irc_sender: crossbeam_channel::Sender<String>) {
                 let usize_idx = usize::from(chopped);
                 keys[usize_idx] = SharedString::from(owned);
                 window.set_keys(Rc::new(VecModel::from(keys)).into());
-
-                // Force event loop to handle an event to make it check queue for new binds
-                unsafe { PostThreadMessageW(thread_id, 6, 0, 0); }
+                unblock_event_loop(thread_id);
             }
             None => ()
         }
@@ -67,8 +71,7 @@ fn event_loop(thread_sender: Sender<DWORD>, irc_sender: crossbeam_channel::Sende
     let mut registrations: Vec<u32> = vec![0; 5];
     loop {
         unsafe {
-            let bind = bind_receiver.try_recv();
-            if let Ok((code, slot)) = bind {
+            while let Ok((code, slot)) = bind_receiver.try_recv() {
                 // The slot for the binding exists, unbind it
                 if registrations[slot as usize] > 0 {
                     UnregisterHotKey(null_mut(), slot as c_int);
@@ -105,6 +108,10 @@ fn event_loop(thread_sender: Sender<DWORD>, irc_sender: crossbeam_channel::Sende
             }
         }
     }
+}
+
+fn unblock_event_loop(event_loop_thread_id: DWORD) {
+    unsafe { PostThreadMessageW(event_loop_thread_id, 6, 0, 0); }
 }
 
 
