@@ -1,5 +1,5 @@
 use std::fs::File;
-use std::io::{BufRead, BufReader, BufWriter, Read, Write};
+use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::ptr::null_mut;
 use std::rc::Rc;
 use std::sync::mpsc::{channel, Receiver, Sender};
@@ -71,10 +71,12 @@ fn event_loop(thread_sender: Sender<DWORD>, irc_sender: crossbeam_channel::Sende
     let mut registrations: Vec<u32> = vec![0; 5];
     loop {
         unsafe {
+            let mut did_recv = false;
             while let Ok((code, slot)) = bind_receiver.try_recv() {
                 // The slot for the binding exists, unbind it
                 if registrations[slot as usize] > 0 {
                     UnregisterHotKey(null_mut(), slot as c_int);
+                    did_recv = true;
                 }
                 // Backspace key pressed - delete and don't rebind
                 if code == 0x08 {
@@ -82,12 +84,16 @@ fn event_loop(thread_sender: Sender<DWORD>, irc_sender: crossbeam_channel::Sende
                 } else {
                     RegisterHotKey(null_mut(), slot as c_int, 0, code);
                     registrations[slot as usize] = code;
-                    match save_registrations(&registrations) {
-                        Ok(()) => println!("saved"),
-                        Err(_) => println!("write failed")
-                    };
+                    did_recv = true;
                 }
             }
+            if did_recv {
+                if let Err(_) = save_registrations(&registrations) {
+                    println!("Saving keybinds failed.")
+                };
+            }
+
+
             let mut msg: MSG = std::mem::zeroed();
             if GetMessageW(&mut msg, null_mut(), 0, 0) == 0 {
                 println!("Shutting down event loop.");
