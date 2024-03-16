@@ -1,20 +1,25 @@
+use std::{mem, thread};
 use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::ptr::null_mut;
 use std::rc::Rc;
-use std::sync::mpsc::{channel, Receiver, Sender};
-use std::thread;
+use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
+use lazy_static::lazy_static;
 use slint::{Model, SharedString, VecModel};
-use winapi::ctypes::c_int;
-use winapi::shared::minwindef::DWORD;
-use winapi::um::processthreadsapi::GetCurrentThreadId;
-use winapi::um::winuser::{GetKeyboardState, GetMessageW, MSG, PostThreadMessageW, RegisterHotKey, UnregisterHotKey, WM_HOTKEY, WM_QUIT};
+use winapi::shared::minwindef::{LPARAM, LRESULT, WPARAM};
+use winapi::shared::windef::HHOOK;
+use winapi::um::winuser::{CallNextHookEx, DispatchMessageA, GetMessageA, KBDLLHOOKSTRUCT, MSG, SetWindowsHookExA, TranslateMessage, UnhookWindowsHookEx, WH_KEYBOARD_LL, WM_KEYDOWN};
 
 use crate::get_appdata_dir;
 
 slint::include_modules!();
+
+lazy_static! {
+    // Solely for low level keyboard hook to be able to communicate back into the program
+    static ref HOOK_SENDER: Mutex<Option<crossbeam_channel::Sender<String>>> = Mutex::new(None);
+}
 
 struct Key {
     code: u32,
@@ -22,127 +27,79 @@ struct Key {
 }
 
 pub fn run(irc_sender: crossbeam_channel::Sender<String>) {
+    let mut sender = HOOK_SENDER.lock().unwrap();
+    *sender = Some(irc_sender);
+    drop(sender);
+
+    thread::spawn(|| run_event_loop());
+
     let window = MainWindow::new().unwrap();
     let window_weak = window.as_weak();
-
-    let (ts, tr) = channel::<DWORD>();
-    let (snd, rcv) = channel::<(u32, u8)>();
-    thread::spawn(move || event_loop(ts, irc_sender, rcv));
-    let thread_id = tr.recv().expect("Failed to receive thread id from evt loop.");
 
     if let Ok(registrations) = load_registrations() {
         let strings: Vec<SharedString> = registrations.iter()
             .map(|&x| SharedString::from(win_key_lookup(x).unwrap_or("unbound".into())))
             .collect();
-        registrations.iter()
-            .enumerate()
-            .for_each(|(i, x)| {
-                snd.send((x.clone(), i as u8)).expect("Failed to fill registration channel");
-            });
         window.set_keys(Rc::new(VecModel::from(strings)).into());
-        unblock_event_loop(thread_id);
     }
 
     window.on_reg(move |slot: i32| {
         let window = window_weak.unwrap();
-        match get_key_data() {
-            Some(key) => {
-                let snd = snd.clone();
-                let mut keys: Vec<SharedString> = window.get_keys().iter().collect();
-                let chopped = slot.to_le_bytes()[0];
-                let owned = key.name.to_owned();
-                snd.send((key.code, chopped)).expect("Channel send failed.");
-                let usize_idx = usize::from(chopped);
-                keys[usize_idx] = SharedString::from(owned);
-                window.set_keys(Rc::new(VecModel::from(keys)).into());
-                unblock_event_loop(thread_id);
-            }
-            None => ()
-        }
+        println!("reg happen lol");
     });
     window.run().unwrap();
-
-    // Shut down evt loop
-    unsafe { PostThreadMessageW(thread_id, WM_QUIT, 0, 0); }
 }
 
-fn event_loop(thread_sender: Sender<DWORD>, irc_sender: crossbeam_channel::Sender<String>, bind_receiver: Receiver<(u32, u8)>) {
-    thread_sender.send(win_current_thread()).expect("Failed to identify current thread.");
-    let mut registrations: Vec<u32> = vec![0; 5];
-    loop {
-        unsafe {
-            let mut did_recv = false;
-            while let Ok((code, slot)) = bind_receiver.try_recv() {
-                // The slot for the binding exists, unbind it
-                if registrations[slot as usize] > 0 {
-                    UnregisterHotKey(null_mut(), slot as c_int);
-                    did_recv = true;
-                }
-                // Backspace key pressed - delete and don't rebind
-                if code == 0x08 {
-                    registrations[slot as usize] = 0;
-                } else {
-                    RegisterHotKey(null_mut(), slot as c_int, 0, code);
-                    registrations[slot as usize] = code;
-                    did_recv = true;
-                }
-            }
-            if did_recv {
-                if let Err(_) = save_registrations(&registrations) {
-                    println!("Saving keybinds failed.")
-                };
-            }
-
-
-            let mut msg: MSG = std::mem::zeroed();
-            if GetMessageW(&mut msg, null_mut(), 0, 0) == 0 {
-                println!("Shutting down event loop.");
-                break;
-            }
-            if msg.message == WM_HOTKEY {
-                let txt = match msg.wParam {
-                    0 => "#A",
-                    1 => "#B",
-                    2 => "#C",
-                    3 => "#D",
-                    4 => "#E",
-                    _ => "???"
-                };
-                if let Err(_) = irc_sender.send(txt.to_string()) {
-                    println!("Nobody is listening.");
-                }
-            }
+fn run_event_loop() {
+    let hook = register_keyboard_hook();
+    unsafe {
+        let mut msg: MSG = mem::zeroed();
+        while GetMessageA(&mut msg, null_mut(), 0, 0) != 0 {
+            TranslateMessage(&msg);
+            DispatchMessageA(&msg);
         }
     }
+    unregister_keyboard_hook(hook);
 }
 
-fn unblock_event_loop(event_loop_thread_id: DWORD) {
-    unsafe { PostThreadMessageW(event_loop_thread_id, 6, 0, 0); }
-}
+pub unsafe extern "system" fn hook_callback(n_code: i32, w_param: WPARAM, l_param: LPARAM) -> LRESULT {
+    if n_code >= 0 {
+        let kb_struct = &*(l_param as *const KBDLLHOOKSTRUCT);
+        let vk_code = kb_struct.vkCode;
 
-
-fn get_key_data() -> Option<Key> {
-    // Winapi get keyboard state dumps 256 u8s representing all vkeys into a buffer
-    // where a most significant bit of 1 indicates the key is currently pressed
-    let mut state = [0u8; 256];
-    unsafe {
-        GetKeyboardState(state.as_mut_ptr());
+        match w_param as u32 {
+            WM_KEYDOWN => {
+                println!("Any key pressed");
+                // Handle key press event
+                if vk_code == 0x41 {
+                    // 'A' key pressed
+                    println!("'A' key pressed!");
+                }
+            }
+            _ => {}
+        }
     }
+    CallNextHookEx(null_mut(), n_code, w_param, l_param)
+}
 
-    let code = match state
-        .iter()
-        .enumerate()
-        .find(|(_, &value)| value >= 128)
-        .and_then(|(index, _)| u32::try_from(index).ok())
-    {
-        Some(v) => v,
-        None => return None
-    };
+fn register_keyboard_hook() -> HHOOK {
+    let callback = Arc::new(hook_callback);
+    unsafe {
+        let instance = winapi::um::libloaderapi::GetModuleHandleA(null_mut());
+        let hook = SetWindowsHookExA(WH_KEYBOARD_LL, Some(*callback), instance, 0);
 
-    let name = win_key_lookup(code).unwrap_or("Misc".into());
-    if name == "ESC" { return None; } // Escape should cancel binding
+        if hook.is_null() {
+            panic!("Failed to set keyboard hook");
+        }
 
-    Some(Key { code, name })
+        hook
+    }
+}
+
+fn unregister_keyboard_hook(hook: HHOOK) {
+    unsafe {
+        UnhookWindowsHookEx(hook);
+    }
 }
 
 fn save_registrations(reg: &Vec<u32>) -> Result<()> {
@@ -167,12 +124,6 @@ fn load_registrations() -> Result<Vec<u32>> {
         .collect();
 
     Ok(reg)
-}
-
-fn win_current_thread() -> DWORD {
-    unsafe {
-        GetCurrentThreadId()
-    }
 }
 
 fn win_key_lookup(code: u32) -> Option<String> {
