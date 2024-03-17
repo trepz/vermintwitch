@@ -3,7 +3,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::ptr::null_mut;
 use std::rc::Rc;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
 use anyhow::Result;
 use lazy_static::lazy_static;
@@ -83,10 +83,9 @@ pub unsafe extern "system" fn hook_callback(n_code: i32, w_param: WPARAM, l_para
 }
 
 fn register_keyboard_hook() -> HHOOK {
-    let callback = Arc::new(hook_callback);
     unsafe {
         let instance = winapi::um::libloaderapi::GetModuleHandleA(null_mut());
-        let hook = SetWindowsHookExA(WH_KEYBOARD_LL, Some(*callback), instance, 0);
+        let hook = SetWindowsHookExA(WH_KEYBOARD_LL, Some(hook_callback), instance, 0);
 
         if hook.is_null() {
             panic!("Failed to set keyboard hook");
