@@ -3,14 +3,16 @@ use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::ptr::null_mut;
 use std::rc::Rc;
+use std::sync::mpsc::channel;
 use std::sync::Mutex;
 
 use anyhow::Result;
 use lazy_static::lazy_static;
 use slint::{Model, SharedString, VecModel};
-use winapi::shared::minwindef::{LPARAM, LRESULT, WPARAM};
+use winapi::shared::minwindef::{DWORD, LPARAM, LRESULT, WPARAM};
 use winapi::shared::windef::HHOOK;
-use winapi::um::winuser::{CallNextHookEx, DispatchMessageA, GetMessageA, KBDLLHOOKSTRUCT, MSG, SetWindowsHookExA, TranslateMessage, UnhookWindowsHookEx, WH_KEYBOARD_LL, WM_KEYDOWN};
+use winapi::um::processthreadsapi::GetCurrentThreadId;
+use winapi::um::winuser::{CallNextHookEx, DispatchMessageA, GetMessageA, KBDLLHOOKSTRUCT, MSG, PostThreadMessageW, SetWindowsHookExA, TranslateMessage, UnhookWindowsHookEx, WH_KEYBOARD_LL, WM_KEYDOWN, WM_QUIT};
 
 use crate::get_appdata_dir;
 
@@ -31,7 +33,7 @@ pub fn run(irc_sender: crossbeam_channel::Sender<String>) {
     *sender = Some(irc_sender);
     drop(sender);
 
-    thread::spawn(|| run_event_loop());
+    let kill_loop = run_event_loop();
 
     let window = MainWindow::new().unwrap();
     let window_weak = window.as_weak();
@@ -48,18 +50,27 @@ pub fn run(irc_sender: crossbeam_channel::Sender<String>) {
         println!("reg happen lol");
     });
     window.run().unwrap();
+    kill_loop();
 }
 
-fn run_event_loop() {
-    let hook = register_keyboard_hook();
-    unsafe {
-        let mut msg: MSG = mem::zeroed();
-        while GetMessageA(&mut msg, null_mut(), 0, 0) != 0 {
-            TranslateMessage(&msg);
-            DispatchMessageA(&msg);
+fn run_event_loop() -> impl FnOnce() -> () {
+    let (ts, tr) = channel::<DWORD>();
+    thread::spawn(move || {
+        let hook = register_keyboard_hook();
+        unsafe {
+            ts.send(GetCurrentThreadId()).expect("Get thread id failed");
+            let mut msg: MSG = mem::zeroed();
+            while GetMessageA(&mut msg, null_mut(), 0, 0) != 0 {
+                TranslateMessage(&msg);
+                DispatchMessageA(&msg);
+            }
         }
-    }
-    unregister_keyboard_hook(hook);
+        unregister_keyboard_hook(hook);
+    });
+    let thread_id = tr.recv().expect("No thread id from loop thread");
+    return move || {
+        unsafe { PostThreadMessageW(thread_id, WM_QUIT, 0, 0); }
+    };
 }
 
 pub unsafe extern "system" fn hook_callback(n_code: i32, w_param: WPARAM, l_param: LPARAM) -> LRESULT {
@@ -84,9 +95,7 @@ pub unsafe extern "system" fn hook_callback(n_code: i32, w_param: WPARAM, l_para
 
 fn register_keyboard_hook() -> HHOOK {
     unsafe {
-        let instance = winapi::um::libloaderapi::GetModuleHandleA(null_mut());
-        let hook = SetWindowsHookExA(WH_KEYBOARD_LL, Some(hook_callback), instance, 0);
-
+        let hook = SetWindowsHookExA(WH_KEYBOARD_LL, Some(hook_callback), null_mut(), 0);
         if hook.is_null() {
             panic!("Failed to set keyboard hook");
         }
