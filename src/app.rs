@@ -12,7 +12,7 @@ use slint::{Model, SharedString, VecModel};
 use winapi::shared::minwindef::{DWORD, LPARAM, LRESULT, WPARAM};
 use winapi::shared::windef::HHOOK;
 use winapi::um::processthreadsapi::GetCurrentThreadId;
-use winapi::um::winuser::{CallNextHookEx, DispatchMessageA, GetMessageA, KBDLLHOOKSTRUCT, MSG, PostThreadMessageW, SetWindowsHookExA, TranslateMessage, UnhookWindowsHookEx, WH_KEYBOARD_LL, WM_KEYDOWN, WM_QUIT};
+use winapi::um::winuser::{CallNextHookEx, DispatchMessageA, GetKeyboardState, GetMessageA, KBDLLHOOKSTRUCT, MSG, PostThreadMessageW, SetWindowsHookExA, TranslateMessage, UnhookWindowsHookEx, WH_KEYBOARD_LL, WM_KEYDOWN, WM_QUIT};
 
 use crate::get_appdata_dir;
 
@@ -21,6 +21,9 @@ slint::include_modules!();
 lazy_static! {
     // Solely for low level keyboard hook to be able to communicate back into the program
     static ref HOOK_SENDER: Mutex<Option<crossbeam_channel::Sender<String>>> = Mutex::new(None);
+    static ref REG_KEYS: Mutex<Vec<u32>> = {
+        Mutex::new(vec![0,5])
+    };
 }
 
 struct Key {
@@ -39,6 +42,8 @@ pub fn run(irc_sender: crossbeam_channel::Sender<String>) {
     let window_weak = window.as_weak();
 
     if let Ok(registrations) = load_registrations() {
+        let mut reg = REG_KEYS.lock().unwrap();
+        *reg = registrations.clone();
         let strings: Vec<SharedString> = registrations.iter()
             .map(|&x| SharedString::from(win_key_lookup(x).unwrap_or("unbound".into())))
             .collect();
@@ -47,7 +52,21 @@ pub fn run(irc_sender: crossbeam_channel::Sender<String>) {
 
     window.on_reg(move |slot: i32| {
         let window = window_weak.unwrap();
-        println!("reg happen lol");
+        match get_key_data() {
+            Some(key) => {
+                let mut reg = REG_KEYS.lock().unwrap();
+                let mut keys: Vec<SharedString> = window.get_keys().iter().collect();
+                let chopped = slot.to_le_bytes()[0];
+                let usize_idx = usize::from(chopped);
+                keys[usize_idx] = SharedString::from(key.name.to_owned());
+                window.set_keys(Rc::new(VecModel::from(keys)).into());
+                reg[usize_idx] = key.code;
+                if let Err(_) = save_registrations(reg.clone()) {
+                    println!("Saving key failed.");
+                }
+            }
+            None => ()
+        }
     });
     window.run().unwrap();
     kill_loop();
@@ -110,7 +129,7 @@ fn unregister_keyboard_hook(hook: HHOOK) {
     }
 }
 
-fn save_registrations(reg: &Vec<u32>) -> Result<()> {
+fn save_registrations(reg: Vec<u32>) -> Result<()> {
     let config = get_appdata_dir().join("binds.cfg");
     let file = File::create(config)?;
     let mut writer = BufWriter::new(file);
@@ -132,6 +151,30 @@ fn load_registrations() -> Result<Vec<u32>> {
         .collect();
 
     Ok(reg)
+}
+
+fn get_key_data() -> Option<Key> {
+    // Winapi get keyboard state dumps 256 u8s representing all vkeys into a buffer
+    // where a most significant bit of 1 indicates the key is currently pressed
+    let mut state = [0u8; 256];
+    unsafe {
+        GetKeyboardState(state.as_mut_ptr());
+    }
+
+    let code = match state
+        .iter()
+        .enumerate()
+        .find(|(_, &value)| value >= 128)
+        .and_then(|(index, _)| u32::try_from(index).ok())
+    {
+        Some(v) => v,
+        None => return None
+    };
+
+    let name = win_key_lookup(code).unwrap_or("Misc".into());
+    if name == "ESC" { return None; } // Escape should cancel binding
+
+    Some(Key { code, name })
 }
 
 fn win_key_lookup(code: u32) -> Option<String> {
