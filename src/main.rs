@@ -21,7 +21,7 @@ fn main() {
             tcp_server::run_tcp_server(cert_str).expect("Failed to start TCP server.")
         });
     };
-
+    
     let (tx, rx) = unbounded::<String>();
     thread::spawn(|| irc_server::run_irc_server(rx));
     app::run(tx);
