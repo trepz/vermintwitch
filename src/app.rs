@@ -99,11 +99,25 @@ pub unsafe extern "system" fn hook_callback(n_code: i32, w_param: WPARAM, l_para
 
         match w_param as u32 {
             WM_KEYDOWN => {
-                println!("Any key pressed");
-                // Handle key press event
-                if vk_code == 0x41 {
-                    // 'A' key pressed
-                    println!("'A' key pressed!");
+                let keys = REG_KEYS.lock().unwrap();
+                for i in 0..4 {
+                    if vk_code == keys[i] {
+                        let mut guard = HOOK_SENDER.lock().unwrap();
+                        match &mut *guard {
+                            Some(sender) => {
+                                let string = match i {
+                                    0 => "#A",
+                                    1 => "#B",
+                                    2 => "#C",
+                                    3 => "#D",
+                                    4 => "#E",
+                                    _ => "???"
+                                };
+                                sender.send(string.to_string()).unwrap()
+                            }
+                            None => println!("Channel is not set"),
+                        }
+                    }
                 }
             }
             _ => {}
