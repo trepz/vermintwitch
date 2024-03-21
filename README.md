@@ -4,7 +4,26 @@ A fake twitch backend for vermintide 2 that runs locally as a desktop app and le
 
 ## Usage
 
+Run the .exe and set your hotkeys before trying to connect to twitch.
+
+Go to the twitch tab in game and press connect, no need to enter a channel name.
+
+That's it, press your hotkeys to vote.
+
 ## How it works
+
+The app adds DNS entries to your windows hosts file, so when your computer goes to look up:
+
+`api.twitch.tv` or `irc.twitch.tv`
+
+it instead gets pointed back at itself, where vermintwitch is running a mock server for each.
+
+Pressing your hotkeys will then send messages from the fake IRC server which the game interprets as twitch votes.
+
+**The program does** ***NOT*** **interact with the game processes at all.** This is not any kind of hack. It happens
+entirely at the network level and can safely be used on official servers without worrying about EAC. The idea got the
+green light from Fatshark providing "I do not do anything malicious to the users computer" - which you can verify here -
+or compile from source yourself if you wish.
 
 ## Cleaning up (manually)
 
