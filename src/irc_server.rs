@@ -1,33 +1,36 @@
+use std::collections::HashMap;
 use std::io::Write;
 use std::net::{TcpListener, TcpStream};
+use std::sync::{Arc, Mutex};
 use std::sync::mpsc::Receiver;
 use std::thread;
 
 pub fn run_irc_server(receiver: Receiver<String>) {
     let listener = TcpListener::bind("127.0.0.1:6667").unwrap();
-    while let Ok((stream, _)) = listener.accept() {
-        let rx = receiver.clone();
-        thread::spawn(move || handle_client(stream, rx));
-    }
-}
+    let streams: Arc<Mutex<HashMap<String, TcpStream>>> = Arc::new(Mutex::new(HashMap::new()));
+    let streams_copy = Arc::clone(&streams);
 
-fn handle_client(mut stream: TcpStream, chan: Receiver<String>) {
-    let mut rat_num = 0;
-    loop {
-        let vote = match chan.recv() {
-            Ok(v) => v,
-            _ => break,
-        };
-        let msg = format!(
-            ":Rat{0}!rat{0}@user.tmi.twitch.tv PRIVMSG #rat :{1}\r\n",
-            rat_num, vote
-        );
-        if let Err(_) = stream.write_all(msg.as_bytes()) {
-            break;
-        };
-        rat_num = rat_num + 1;
-        if rat_num > 50 {
-            rat_num = 0;
+    // Write to all streams when channel receives a vote
+    thread::spawn(move || {
+        let mut rat_num = 0;
+        loop {
+            let vote = receiver.recv().expect("Irc receiver failed.");
+            let mut s = streams_copy.lock().unwrap();
+            for (_, stream) in s.iter_mut() {
+                let msg = format!(":Rat{0}!rat{0}@user.tmi.twitch.tv PRIVMSG #rat :{1}\r\n", rat_num, vote);
+                if let Err(_) = stream.write_all(msg.as_bytes()) {
+                    break;
+                };
+                rat_num = rat_num + 1;
+                if rat_num > 50 {
+                    rat_num = 0;
+                }
+            }
         }
+    });
+
+    while let Ok((stream, _)) = listener.accept() {
+        let key = stream.peer_addr().unwrap().to_string();
+        streams.lock().unwrap().insert(key, stream);
     }
 }
