@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::io::Write;
 use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
@@ -7,7 +6,7 @@ use std::thread;
 
 pub fn run_irc_server(receiver: Receiver<String>) {
     let listener = TcpListener::bind("127.0.0.1:6667").unwrap();
-    let streams: Arc<Mutex<HashMap<String, TcpStream>>> = Arc::new(Mutex::new(HashMap::new()));
+    let streams: Arc<Mutex<Vec<TcpStream>>> = Arc::new(Mutex::new(vec![]));
     let streams_copy = Arc::clone(&streams);
 
     // Write to all streams when channel receives a vote
@@ -16,21 +15,21 @@ pub fn run_irc_server(receiver: Receiver<String>) {
         loop {
             let vote = receiver.recv().expect("Irc receiver failed.");
             let mut s = streams_copy.lock().unwrap();
-            for (_, stream) in s.iter_mut() {
+            s.retain(|mut stream| {
                 let msg = format!(":Rat{0}!rat{0}@user.tmi.twitch.tv PRIVMSG #rat :{1}\r\n", rat_num, vote);
                 if let Err(_) = stream.write_all(msg.as_bytes()) {
-                    break;
+                    false;
                 };
                 rat_num = rat_num + 1;
                 if rat_num > 50 {
                     rat_num = 0;
-                }
-            }
+                };
+                true
+            })
         }
     });
 
     while let Ok((stream, _)) = listener.accept() {
-        let key = stream.peer_addr().unwrap().to_string();
-        streams.lock().unwrap().insert(key, stream);
+        streams.lock().unwrap().push(stream);
     }
 }
