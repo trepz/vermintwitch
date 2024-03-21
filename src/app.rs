@@ -3,7 +3,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::ptr::null_mut;
 use std::rc::Rc;
-use std::sync::mpsc::channel;
+use std::sync::mpsc::{channel, Sender};
 use std::sync::Mutex;
 
 use anyhow::Result;
@@ -20,7 +20,7 @@ slint::include_modules!();
 
 lazy_static! {
     // Solely for low level keyboard hook to be able to communicate back into the program
-    static ref HOOK_SENDER: Mutex<Option<crossbeam_channel::Sender<String>>> = Mutex::new(None);
+    static ref HOOK_SENDER: Mutex<Option<Sender<String>>> = Mutex::new(None);
     static ref REG_KEYS: Mutex<Vec<u32>> = {
         Mutex::new(vec![0,5])
     };
@@ -31,7 +31,7 @@ struct Key {
     name: String,
 }
 
-pub fn run(irc_sender: crossbeam_channel::Sender<String>) {
+pub fn run(irc_sender: Sender<String>) {
     let mut sender = HOOK_SENDER.lock().unwrap();
     *sender = Some(irc_sender);
     drop(sender);
@@ -113,7 +113,7 @@ pub unsafe extern "system" fn hook_callback(n_code: i32, w_param: WPARAM, l_para
                                     4 => "#E",
                                     _ => "???"
                                 };
-                                sender.send(string.to_string()).unwrap()
+                                sender.send(string.to_string()).unwrap_or(())
                             }
                             None => println!("Channel is not set"),
                         }

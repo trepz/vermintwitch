@@ -8,7 +8,6 @@ edition = "2021"
 [dependencies]
 native-tls = "0.2.11"
 anyhow = "1.0.80"
-crossbeam-channel = "0.5.12"
 slint = "1.4.1"
 winapi = { version = "0.3.9", features = ["winuser", "windef"] }
 lazy_static = "1.4.0"

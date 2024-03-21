@@ -1,12 +1,9 @@
 use std::io::Write;
 use std::net::{TcpListener, TcpStream};
+use std::sync::mpsc::Receiver;
 use std::thread;
 
-use crossbeam_channel::Receiver;
-
 pub fn run_irc_server(receiver: Receiver<String>) {
-    let rx = receiver.clone();
-    thread::spawn(|| channel_drain(rx));
     let listener = TcpListener::bind("127.0.0.1:6667").unwrap();
     while let Ok((stream, _)) = listener.accept() {
         let rx = receiver.clone();
@@ -32,13 +29,5 @@ fn handle_client(mut stream: TcpStream, chan: Receiver<String>) {
         if rat_num > 50 {
             rat_num = 0;
         }
-    }
-}
-
-fn channel_drain(chan: Receiver<String>) {
-    // Just drain this channel forever so we don't blow up the PC if the user holds a hotkey
-    // forever without being connected.
-    loop {
-        chan.recv().unwrap();
     }
 }
