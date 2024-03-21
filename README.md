@@ -2,6 +2,8 @@
 
 A fake twitch backend for vermintide 2 that runs locally as a desktop app and lets you control your own votes.
 
+![](assets/app.png)
+
 ## Usage
 
 Run the .exe and set your hotkeys before trying to connect to twitch.
@@ -24,6 +26,11 @@ Pressing your hotkeys will then send messages from the fake IRC server which the
 entirely at the network level and can safely be used on official servers without worrying about EAC. The idea got the
 green light from Fatshark providing "I do not do anything malicious to the users computer" - which you can verify here -
 or compile from source yourself if you wish.
+
+## Anti-virus
+
+Given that this application redirects traffic from twitch.tv and listens for global key-presses, it seems to be flagged
+by some anti-virus software as a trojan. It may need to be added to your anti-virus exception list.
 
 ## Cleaning up (manually)
 
