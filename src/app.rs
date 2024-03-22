@@ -22,7 +22,7 @@ lazy_static! {
     // Solely for low level keyboard hook to be able to communicate back into the program
     static ref HOOK_SENDER: Mutex<Option<Sender<String>>> = Mutex::new(None);
     static ref REG_KEYS: Mutex<Vec<u32>> = {
-        Mutex::new(vec![0,5])
+        Mutex::new(vec![0;5])
     };
 }
 
@@ -42,6 +42,7 @@ pub fn run(irc_sender: Sender<String>) {
     let window_weak = window.as_weak();
 
     if let Ok(registrations) = load_registrations() {
+        println!("Got {}", registrations.len());
         let mut reg = REG_KEYS.lock().unwrap();
         *reg = registrations.clone();
         let strings: Vec<SharedString> = registrations.iter()
@@ -158,11 +159,12 @@ fn load_registrations() -> Result<Vec<u32>> {
     let config = get_appdata_dir().join("binds.cfg");
     let file = File::open(config)?;
     let reader = BufReader::new(file);
-    let reg: Vec<u32> = reader
+    let mut reg: Vec<u32> = reader
         .lines()
         .take(5)
         .map(|line| line.unwrap_or_default().parse().unwrap_or_default())
         .collect();
+    reg.resize(5, 0); // Ensure correct size
 
     Ok(reg)
 }
