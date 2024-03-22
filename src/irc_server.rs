@@ -18,7 +18,7 @@ pub fn run_irc_server(receiver: Receiver<String>) {
             s.retain(|mut stream| {
                 let msg = format!(":Rat{0}!rat{0}@user.tmi.twitch.tv PRIVMSG #rat :{1}\r\n", rat_num, vote);
                 if let Err(_) = stream.write_all(msg.as_bytes()) {
-                    false;
+                    return false;
                 };
                 rat_num = rat_num + 1;
                 if rat_num > 50 {
