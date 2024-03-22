@@ -45,7 +45,7 @@ Move-Item -Path ('Cert:\LocalMachine\My\' + $cert.Thumbprint) -Destination 'Cert
 
 # Export private key to data dir
 $pwd = ConvertTo-SecureString -String 'Testing' -Force -AsPlainText
-Export-PfxCertificate -Cert $cert -Password $pwd -FilePath {}
+Export-PfxCertificate -Cert $cert -Password $pwd -FilePath '{}'
 "#, path.to_str().unwrap())
 }
 
