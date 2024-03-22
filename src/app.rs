@@ -42,7 +42,6 @@ pub fn run(irc_sender: Sender<String>) {
     let window_weak = window.as_weak();
 
     if let Ok(registrations) = load_registrations() {
-        println!("Got {}", registrations.len());
         let mut reg = REG_KEYS.lock().unwrap();
         *reg = registrations.clone();
         let strings: Vec<SharedString> = registrations.iter()
